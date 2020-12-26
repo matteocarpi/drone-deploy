@@ -1,34 +1,41 @@
 #!/bin/bash
-echo "Creating deploy.sh..."
 
-environment=$1
+echo "What framework is your app/website built on?"
+
 red=green=`tput setaf 1`
 green=`tput setaf 2`
 reset=`tput sgr0`
 
 # Define Vars
+select framework in Gatsby CRA Jekyll
+do
+  case $framework in
+    Jekyll)
+      language="ruby"
+      script="bundle exec jekyll build"
+      dir="_site"
+      break
+      ;;
+    Gatsby)
+      language="node"
+      script="yarn build"
+      dir="public"
+      break
+      ;;
+    CRA)
+      language="node"
+      script="yarn build"
+      dir="build"
+      break
+      ;;
+    *)
+      echo 'WTF bro?!' >&2
+      exit 1
+      ;;
+  esac
+done
 
-case "$1" in
-  jekyll)
-    language="ruby"
-    script="bundle exec jekyll build"
-    dir="_site"
-    ;;
-  gatsby)
-    language="node"
-    script="yarn build"
-    dir="public"
-    ;;
-  cra)
-  language="node"
-  script="yarn build"
-  dir="build"
-  ;;
-  *)
-    echo 'WTF bro?!' >&2
-    exit 1
-    ;;
-esac
+echo "Creating deploy.sh..."
 
 cat << EOF > deploy.sh
 #!/bin/bash
