@@ -1,0 +1,143 @@
+#!/bin/bash
+echo "Creating deploy.sh..."
+
+environment=$1
+red=green=`tput setaf 1`
+green=`tput setaf 2`
+reset=`tput sgr0`
+
+# Define Vars
+
+case "$1" in
+  jekyll)
+    language="ruby"
+    script="bundle exec jekyll build"
+    dir="_site"
+    ;;
+  gatsby)
+    language="node"
+    script="yarn build"
+    dir="public"
+    ;;
+  cra)
+  language="node"
+  script="yarn build"
+  dir="build"
+  ;;
+  *)
+    echo 'WTF bro?!' >&2
+    exit 1
+    ;;
+esac
+
+cat << EOF > deploy.sh
+#!/bin/bash
+set -e
+
+if [ -z "$NETLIFY_AUTH_TOKEN" ]; then
+    echo "NETLIFY_AUTH_TOKEN not setted"
+    exit 1
+fi
+
+if [ -z "$NETLIFY_SITE_ID" ]; then
+    echo "NETLIFY_SITE_ID not setted"
+    exit 1
+fi
+
+args=(
+    --message="@$(git rev-parse --short HEAD)"
+    --auth=""
+    --site=""
+    --dir=public
+)
+
+if [[ "$DRONE_BRANCH" = main ]]; then
+    args+=(--prod)
+fi
+  
+npx netlify deploy "${args[@]}"
+EOF
+echo "${green}Done!${reset}"
+
+echo "Creating .drone.yml"
+
+cat << EOF > .drone.yml
+---
+kind: pipeline
+type: docker
+name: default
+
+steps:
+  - name: Restore Cache
+    image: meltwater/drone-cache:dev
+    pull: true
+    settings:
+      backend: "filesystem"
+      restore: true
+      cache_key: '{{ checksum "package.json" }}'
+      archive_format: "gzip"
+      mount:
+        - "./node_modules"
+
+    volumes:
+      - name: cache
+        path: /tmp/cache
+
+  - name: Build
+    image: node
+    commands:
+      - yarn install
+      - yarn build
+
+  - name: Rebuild Cache
+    image: meltwater/drone-cache:dev
+    pull: true
+    settings:
+      backend: "filesystem"
+      rebuild: true
+      cache_key: '{{ checksum "package.json" }}'
+      archive_format: "gzip"
+      mount:
+        - "./node_modules"
+    volumes:
+      - name: cache
+        path: /tmp/cache
+
+  - name: Deploy
+    image: node
+    environment:
+      NETLIFY_AUTH_TOKEN:
+        from_secret: NETLIFY_AUTH_TOKEN
+      NETLIFY_SITE_ID:
+        from_secret: NETLIFY_SITE_ID
+    commands:
+      - bash deploy.sh
+
+  - name: Notification
+    image: plugins/slack
+    when:
+      status:
+        - success
+        - failure
+    settings:
+      webhook:
+        from_secret: SLACK_TAMETO
+      channel: tameto-builds
+      link_names: true
+      template: >
+        {{#success build.status}}
+          {{repo.name}}: :white_check_mark: Build #{{build.number}} succeeded!
+          {{build.link}}
+        {{else}}
+          {{repo.name}} :x: Build #{{build.number}} failed. Fix me please.
+          {{build.link}}
+        {{/success}}
+
+volumes:
+  - name: cache
+    host:
+      path: /var/lib/cache
+EOF
+
+echo "${green}Done!${reset}"
+say "Well done mate"
